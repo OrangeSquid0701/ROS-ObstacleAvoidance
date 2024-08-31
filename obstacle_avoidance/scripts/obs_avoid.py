@@ -70,7 +70,7 @@ class ObstacleAvoidance:
             else:
                 self.twist.angular.z = -angular_sensitivity * (1.0 / avg_center_dist) * 0.5
         else:
-            self.twist.linear.x = linear_sensitivity * 0.2  # Maintain a base speed when no obstacle is detected
+            self.twist.linear.x = linear_sensitivity * 0.1 # Maintain a base speed when no obstacle is detected
             self.twist.angular.z = 0.0
 
         # Print the velocities
