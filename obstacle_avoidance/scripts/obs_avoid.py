@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import rospy
@@ -9,7 +8,7 @@ from std_msgs.msg import Bool
 import sensor_msgs.point_cloud2 as pc2
 
 class ObstacleAvoidance:
-    def _init_(self):
+    def __init__(self):
         # Initialize the ROS node
         rospy.init_node('obstacle_avoidance', anonymous=True)
 
@@ -17,14 +16,15 @@ class ObstacleAvoidance:
         self.cmd_vel_pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=10)
 
         # Subscriber to the point cloud topic and obstacle detected flag
-        self.point_cloud_sub = rospy.Subscriber('/realsense_point_cloud', PointCloud2, self.point_cloud_callback)
+        self.point_cloud_sub = rospy.Subscriber('/realsense/points', PointCloud2, self.point_cloud_callback)
         self.obstacle_detected_sub = rospy.Subscriber('/obstacle_detected', Bool, self.obstacle_detected_callback)
 
         # Internal state
         self.latest_point_cloud = None
-        self.obstacle_distance_threshold = 1.5  # Example threshold
+        self.obstacle_distance_threshold = 2.5  # Example threshold
         self.obstacle_present = False
         self.twist = Twist()
+        self.direction_flag = None  # Track current direction
 
     def obstacle_detected_callback(self, msg):
         # Update obstacle presence state
@@ -58,22 +58,30 @@ class ObstacleAvoidance:
         avg_right_dist = np.mean(right_section[:, 2]) if right_section.size else float('inf')
 
         # Adjusted linear and angular sensitivity factors
-        linear_sensitivity = 0.5  # Increase this value for more sensitive linear speed reduction
-        angular_sensitivity = 1.0  # Increase this value for more sensitive turning
+        linear_sensitivity = 0.2  # Increase this value for more sensitive linear speed reduction
+        angular_sensitivity = 1.8  # Increase this value for more sensitive turning
 
         if avg_center_dist < self.obstacle_distance_threshold:
-            # Adjust linear speed more aggressively as the obstacle gets closer
-            self.twist.linear.x = linear_sensitivity * max(0.05, avg_center_dist / self.obstacle_distance_threshold)
-            
+            # Avoid obstacle by turning in the direction with more space
             if avg_left_dist > avg_right_dist:
-                self.twist.angular.z = angular_sensitivity * (1.0 / avg_center_dist) * 0.5
+                self.direction_flag = 'right'
+                self.twist.angular.z = angular_sensitivity * (1.0 / avg_center_dist)  # Turn right
             else:
-                self.twist.angular.z = -angular_sensitivity * (1.0 / avg_center_dist) * 0.5
-        else:
-            self.twist.linear.x = linear_sensitivity * 0.1 # Maintain a base speed when no obstacle is detected
-            self.twist.angular.z = 0.0
+                self.direction_flag = 'left'
+                self.twist.angular.z = -angular_sensitivity * (1.0 / avg_center_dist)  # Turn left
 
-        # Print the velocities
+            # Add delay to maintain the direction longer
+            rospy.sleep(1)  # Adjust the sleep time as needed (e.g., 1.0 second)
+
+            # Forward speed reduction based on proximity to the obstacle
+            self.twist.linear.x = linear_sensitivity * max(0.05, avg_center_dist / self.obstacle_distance_threshold)
+        else:
+            # No obstacle detected, move forward with a base speed
+            self.twist.linear.x = linear_sensitivity * 0.1
+            self.twist.angular.z = 0.0
+            self.direction_flag = None  # Reset the direction flag
+
+        # Print the velocitiesproximity
         rospy.loginfo(f"Linear Velocity: {self.twist.linear.x} m/s, Angular Velocity: {self.twist.angular.z} rad/s")
 
         # Publish the velocity command
@@ -81,5 +89,9 @@ class ObstacleAvoidance:
 
 
 if __name__ == '__main__':
-    oa = ObstacleAvoidance()
-    rospy.spin()
+    try:
+        oa = ObstacleAvoidance()
+        rospy.spin()
+    except rospy.ROSInterruptException:
+        pass
+
